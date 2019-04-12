@@ -4,6 +4,12 @@ import java.io.FileInputStream
 import java.sql.DriverManager
 import java.util.Properties
 
+import org.apache.log4j.LogManager
+import org.apache.spark.sql.SaveMode
+import org.apache.spark.sql.hive.HiveContext
+import org.apache.spark.storage.StorageLevel
+import org.apache.spark.{SparkConf, SparkContext}
+
 import scala.util.Try
 
 object RdbmsImporter {
