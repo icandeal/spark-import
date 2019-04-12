@@ -6,7 +6,6 @@
   <inceptionYear>2008</inceptionYear>
   <properties>
     <!--  参数配置  -->
-    <properties>
       <scala.version>2.10.5</scala.version>
       <http.version>4.2.5</http.version>
       <spark.version>1.6.0</spark.version>
@@ -14,10 +13,8 @@
       <hadoop.version>2.6.0</hadoop.version>
       <mysql.version>5.1.42</mysql.version>
       <oracle.version>10.2.0.2.0</oracle.version>
-    </properties>
   </properties>
 
-  <dependencies>
   <dependencies>
     <dependency>
       <groupId>org.apache.spark</groupId>
