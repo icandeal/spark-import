@@ -4,9 +4,10 @@ import java.io.FileInputStream
 import java.sql.DriverManager
 import java.util.Properties
 
-import org.apache.log4j.LogManager
-import org.apache.spark.sql.SaveMode
+import org.apache.logging.log4j.LogManager
 import org.apache.spark.sql.hive.HiveContext
+import org.apache.spark.sql.types.{StringType, TimestampType}
+import org.apache.spark.sql.{DataFrame, Row, SQLContext, SaveMode}
 import org.apache.spark.storage.StorageLevel
 import org.apache.spark.{SparkConf, SparkContext}
 
@@ -14,12 +15,17 @@ import scala.util.Try
 
 object RdbmsImporter {
 
-  val logger = LogManager.getLogger("RdbmsImporter")
+  val logger =  LogManager.getLogger(this.getClass)
+  var lowerbound = 0l
+  var size = 100000000l
+  var upperbound = size
+  var partitionNum = 2048l
+  var batch = 100000l
 
   def main(args: Array[String]): Unit = {
     val prop = new Properties()
     prop.load(new FileInputStream(args(0)))
-//    prop.load(new FileInputStream("E:\\Project\\common-util\\rdbms-import\\src\\main\\scala\\com\\etiantian\\bigdata\\tmp.properties"))
+    //        prop.load(new FileInputStream("E:\\Project\\common-util\\rdbms-import\\src\\main\\resources\\tmp.properties"))
     val url = prop.getProperty("url")
     val driver = prop.getProperty("driver")
     val username = prop.getProperty("username")
@@ -34,12 +40,14 @@ object RdbmsImporter {
     val lb = prop.getProperty("lowerbound")
     val ub = prop.getProperty("upperbound")
     val fetchSize = prop.getProperty("fetchSize")
-    val batch = prop.getProperty("batch")
+    val batchProp = prop.getProperty("batch")
     val executors = prop.getProperty("executors")
     val hiveTable = prop.getProperty("hiveTable")
-//    val hivePartition = prop.getProperty("hivePartition")
-//    val overwrite = prop.getProperty("overwrite")
+    //    val hivePartition = prop.getProperty("hivePartition")
+    //    val overwrite = prop.getProperty("overwrite")
 
+    if (Try(batchProp.toLong).isSuccess)
+      batch = batchProp.toLong
 
     if (table == null || table.trim.length < 1) {
       table = "("+query+") as tmp"
@@ -48,29 +56,35 @@ object RdbmsImporter {
     Class.forName(driver)
     val conn = DriverManager.getConnection(url, username, password)
     val statement = conn.createStatement()
-    val resultSet = statement.executeQuery(s"select min($splitBy), max($splitBy), count(*) from $table where length(trim($splitBy))>0")
+    val sql = new StringBuilder(s"select min($splitBy), max($splitBy)")
+    if (pm != null && pm.trim.length > 0) {
+      sql.append(s" from $table")
+      partitionNum = pm.toLong
+    }
+    else {
+      sql.append(s", count(*) from $table")
+    }
+
+    val resultSet = statement.executeQuery(sql.toString())
     resultSet.next()
-    val size = resultSet.getString(3)
-    var lowerbound = if (Try(resultSet.getString(1).toLong).isSuccess) resultSet.getString(1) else "1"
-    var upperbound = if (Try(resultSet.getString(2).toLong).isSuccess) resultSet.getString(2) else size
+    lowerbound = if (Try(resultSet.getString(1).toLong).isSuccess) resultSet.getString(1).toLong else lowerbound
+    size = if (Try(resultSet.getLong(3)).isSuccess) resultSet.getLong(3) else size
+    upperbound = if (Try(resultSet.getString(2).toLong).isSuccess) resultSet.getString(2).toLong else size
 
-    var p = size.toLong / batch.toLong
-    if (p == 0)
-      p = 1
-    val q = (upperbound.toLong - lowerbound.toLong) / batch.toLong
-    p = if (q / p > 1000) p * 55  else p
-    if (p > executors.toLong * 1250)
-      p = executors.toLong * 1250
-    var partitionNum = if (p < executors.toLong) executors.toLong else p + (executors.toLong - p % executors.toLong)
-
+    if (pm == null || pm.trim.length < 1) {
+      var p = size / batch
+      if (p == 0) p = 1
+      val q = (upperbound - lowerbound) / batch
+      p = if (q / p > 1000) p * 55 else p
+      if (p > executors.toLong * 512)
+        p = executors.toLong * 512
+      partitionNum = if (p < executors.toLong) executors.toLong else p + (executors.toLong - p % executors.toLong)
+    }
     if (lb != null && lb.trim.length > 0) {
-      lowerbound = lb
+      lowerbound = lb.toLong
     }
     if (ub != null && ub.trim.length > 0) {
-      upperbound = ub
-    }
-    if (pm != null && pm.trim.length > 0) {
-      partitionNum = pm.toLong
+      upperbound = ub.toLong
     }
 
     println(s"###############  lowerbound = $lowerbound  ######################")
@@ -79,9 +93,9 @@ object RdbmsImporter {
     println(s"###############  batch = $batch  ################################")
 
     val sparkConf = new SparkConf().setAppName(s"common-util:RdbmsImporter:$hiveTable")
-//      .setMaster("local[5]")
+    //          .setMaster("local[5]")
     val sc = new SparkContext(sparkConf)
-//    sc.setLogLevel("WARN")
+    //    sc.setLogLevel("WARN")
     val sqlContext = new HiveContext(sc)
 
     val t1 = System.currentTimeMillis()
@@ -94,19 +108,19 @@ object RdbmsImporter {
         "dbtable"-> table,
         "partitionColumn"-> splitBy,
         "numPartitions" -> partitionNum.toString,
-        "lowerBound"-> lowerbound,
-        "upperBound"-> upperbound,
+        "lowerBound"-> lowerbound.toString,
+        "upperBound"-> upperbound.toString,
         "fetchSize"-> fetchSize
       )
     ).load()
 
-//    df.schema.foreach(sf => {
-//      val col = sf.name
-//      val dataType = sf.dataType
-//      df = df.withColumn(
-//        col, if (dataType.isInstanceOf[TimestampType]) df(col).cast(StringType) else df(col)
-//      ).withColumnRenamed(col, col.toLowerCase())
-//    })
+    //    df.schema.foreach(sf => {
+    //      val col = sf.name
+    //      val dataType = sf.dataType
+    //      df = df.withColumn(
+    //        col, if (dataType.isInstanceOf[TimestampType]) df(col).cast(StringType) else df(col)
+    //      ).withColumnRenamed(col, col.toLowerCase())
+    //    })
 
     df.columns.foreach(col => {
       df = df.withColumnRenamed(col, col.toLowerCase())
@@ -132,7 +146,7 @@ object RdbmsImporter {
     }
     df.persist(StorageLevel.MEMORY_AND_DISK_SER)
     println("###################  Import record:"+df.count +". Time spend:" + (System.currentTimeMillis() - t1) + "  partition size:"+df.rdd.partitions.size + "####################")
-//    df.show()
+    //        df.show()
     df.write.format("orc").mode(SaveMode.Overwrite).saveAsTable(hiveTable)
     sc.stop()
   }

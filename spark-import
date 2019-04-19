@@ -5,6 +5,7 @@ base=`dirname $0`
 hasHelp=false
 
 numExecutor=4
+mem=8G
 #partitionNum=200
 fetchSize=10000
 batch=200000
@@ -24,13 +25,14 @@ sendHelp() {
  echo -e "--add-cols <col1,col2,...>\tAdd columns into current dataframe"
  echo -e "-q,--query <sql>\t\tQuery SQL. Can not use together with -t|--table"
  echo -e "--splitBy <n>\t\t\tColumn of the table used to split work unit"
-# echo -e "-n,--partitionNum <n>\t\tUse 'n' partitions in spark job. Default 200"
-# echo -e "--lowerbound <n>\t\tPartition's lowerbound"
-# echo -e "--upperbound <n>\t\tPartition's upperbound"
+ echo -e "-n,--partitionNum <n>\t\tUse 'n' partitions in spark job. Default 200"
+ echo -e "-lb,--lowerbound <n>\t\tPartition's lowerbound"
+ echo -e "-up,--upperbound <n>\t\tPartition's upperbound"
  echo -e "-s,--fetch-size <n>\t\tSet number 'n' of rows to fetch from database in each tasks. Default $fetchSize"
  echo -e "-b,--batch <n>\t\t\tImport 'n' rows from database each batchs. Default $batch"
  echo -e "--hive-table <table-name>\tSet the table name to use when importing to hive"
  echo -e "--hive-db <db-name>\t\tSet the hive database to save. Default is [$hivedb]"
+ echo -e "--mem <executor-memory>\tSet the memory for each executor"
 # echo -e "--hive-partition <key>\t\tSets the partition key to use when importing to hive"
 # echo -e "--hive-overwrite\t\tOverwrite existing data in the Hive table"
  echo -e "\n@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@"
@@ -150,7 +152,7 @@ while true; do
 	partitionNum=$2
 	shift 2
 	;;
-    --lowerbound)
+    -lb|--lowerbound)
 	if ( missVal $1 $2 ); then
          sendHelp
          break
@@ -158,7 +160,7 @@ while true; do
 	lower=$2
 	shift 2
 	;;
-    --upperbound)
+    -ub|--upperbound)
         if ( missVal $1 $2 ); then
          sendHelp
          break
@@ -196,6 +198,14 @@ while true; do
          break
         fi
         hivedb=$2
+        shift 2
+        ;;
+    --mem)
+        if ( missVal $1 $2 ); then
+         sendHelp
+         break
+        fi
+        mem=$2
         shift 2
         ;;
 #    --hive-partition)
@@ -276,7 +286,7 @@ if ( ! $hasHelp ); then
 fi
 
 if ( ! $hasHelp ); then
- spark-submit --master yarn-client --executor-cores 2 --num-executors $numExecutor --driver-memory 2G --executor-memory 8G --conf spark.storage.memoryFraction=0.5 --conf spark.shuffle.memoryFraction=0.1 --conf spark.yarn.executor.memoryOverhead=4096  --conf spark.network.timeout=300 $base/rdbms-import-full_2.10.jar ./tmp.properties
+ spark-submit --master yarn-client --executor-cores 2 --num-executors $numExecutor --driver-memory 2G --executor-memory $mem --conf spark.storage.memoryFraction=0.5 --conf spark.shuffle.memoryFraction=0.1 --conf spark.yarn.executor.memoryOverhead=4096  --conf spark.network.timeout=300 $base/rdbms-import-full_2.10.jar ./tmp.properties
  if [ ! $? -eq 0  ]; then
   echo $hiveTable >> ./error.log
  fi
